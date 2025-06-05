@@ -1,0 +1,596 @@
+---
+title: "Data Visualization Project"
+author: "Jack Stechersmith"
+date: "`r Sys.Date()`"
+output:
+     html_document:
+          toc: true
+          toc_depth: 2
+          toc_float: true
+          theme: cosmo
+          code_folding: show
+---
+
+```{r, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, comment = FALSE, message = FALSE)
+```
+
+```{r, include=FALSE}
+library(rvest)
+library(dplyr)
+library(ggplot2)
+library(treemapify)
+library(reshape2)
+library(plotly)
+library(shiny)
+```
+
+## Introduction
+
+In this report, I sought out to investigate and visualize the effects of the 2023 MLB rule changes. During the offseason between the 2022 and 2023 MLB seasons, the Joint Competition Committee approved three major rule changes: a complete ban of the defensive shift, the implementation of a pitch clock, and a three-inch increase in base sizing. These changes were implemented with the goal of increasing the general pace of play while decreasing overall game time. Some argued that MLB was eroding the integrity of the game, while others believed that this would create a more exciting version of baseball, still in line with what the sport has always been. While fans could hypothesize about how much baseball would be changing, for better or worse, it was all speculation until the season had been played. With the 2024 MLB season now upon us, I wanted to see just how impactful the rule changes were on baseball. Was this truly a version of baseball that had never before been seen? Has baseball been saved?
+
+
+## What Was the State of Baseball in 2022?
+
+The first thing I wanted to understand was where baseball sat in the American psyche during the 2022 season. I have only become a passionate baseball fan over the past few years, although even as a child I was aware of its nickname “America’s Pastime.” This felt odd to me, since my peers and I constantly discussed sports like soccer, football, and basketball, yet never baseball. How could a sport that no one talked about be our entire country's pastime?
+
+\n
+```{r}
+### data load
+
+dat.p1 <- data.frame(league = c('MLB', 'NFL', 'NBA', 'NHL', 'MLS'),
+                     revenue = c(10.32, 18.6, 10.58, 5.93, 1.51)
+)
+```
+
+```{r}
+### plot 1
+
+ggplot(dat.p1, aes(area = revenue, fill=league)) + 
+  geom_treemap() +
+  geom_treemap_text(aes(label = revenue), color = "white", size = 18, place = "centre") +
+  geom_treemap_text(aes(label = league), color = "white", size = 18) +
+  labs(title = "Is Baseball Still America's Pastime?",
+       subtitle = "2022 Revenue of Major American Sports Leagues in Billions ($)",
+       caption = "Data: Forbes") +
+  scale_fill_manual(name = "Sports League",
+                    labels = c("Major League Baseball", "Major League Soccer", 
+                               "National Basketball Association", "National Football League", 
+                               "National Hockey League"),
+                    values = c("#AE2841", "#F8D53A", "#7D8491", "#0B1E3F", "#FCB1A6")) + 
+  theme_bw() + 
+  theme(plot.title = element_text(face = 'bold', size = 16),
+        plot.subtitle = element_text(size = 12),
+        legend.position = "none")
+```
+
+
+
+By comparing the revenues of the top five major American sports leagues, it is fair to say that baseball is no longer America’s pastime. In 2022, MLB had only the third highest revenue of the top leagues, ranking just behind the NBA, but far from the NFL. In fact, the MLB is far closer to the 4th place NHL in terms of revenue than the NFL. It appears that, in the 21st century, football has taken baseball’s status as America’s Pastime. 
+
+My next question was to find out just how far baseball has fallen. After all, if it was once synonymous with American culture, it must have been quite popular. To examine this idea, I turned to the World Series. Typically played in late October, the World Series is the final set of games in the MLB playoffs. Whichever team wins the World Series is crowned champion of the sport, at least until the next year. Playing in the World Series is what every fan, player, and organization dreams about.
+
+\n
+```{r}
+### data load
+
+webpage.ws <- read_html('https://www.baseball-almanac.com/ws/wstv.shtml')
+
+dat.p2 <- webpage.ws %>%
+  html_element("body") %>% 
+  html_table()
+
+dat.p2 <- dat.p2[-1,]
+colnames(dat.p2) <- as.character(as.vector(dat.p2[1,]))
+dat.p2 <- dat.p2[-1,]
+
+dat.p2 <- dat.p2[6:56,c(1,5)]
+dat.p2 <- dat.p2[-22,]
+
+dat.p2$Viewers <- gsub(",", "", dat.p2$Viewers)
+
+dat.p2$Viewers <- as.numeric(dat.p2$Viewers)
+dat.p2$Viewers <- dat.p2$Viewers / 1000000
+dat.p2$Series <- as.numeric(dat.p2$Series)
+
+dat.p2 <- dat.p2[-nrow(dat.p2),]
+
+accumulate_by <- function(dat, var) {
+  var <- lazyeval::f_eval(var, dat)
+  lvls <- plotly:::getLevels(var)
+  dats <- lapply(seq_along(lvls), function(x) {
+    cbind(dat[var %in% lvls[seq(1, x)], ], frame = lvls[[x]])
+  })
+  dplyr::bind_rows(dats)
+}
+
+dat.p2.2 <- dat.p2 %>% accumulate_by(~Series)
+```
+
+```{r}
+### plot 2
+
+fig <- dat.p2.2 %>%
+  plot_ly(
+    x = ~Series, 
+    y = ~Viewers,
+    frame = ~frame, 
+    type = 'scatter',
+    mode = 'lines+markers', 
+    line = list(color = "#0B1E3F"),
+    marker = list(color = "#AE2841", size = 10)
+  )
+fig <- fig %>% layout(
+  xaxis = list(
+    title = "Year",
+    zeroline = F
+  ),
+  yaxis = list(
+    title = "Average # of Viewers (millions)",
+    zeroline = F
+  ),
+  title = "Do Americans Watch Baseball?: World Series Viewership from 1973-2022",
+  annotations = list(
+    x = 1, y = -0.1, text = "Data: Baseball Almanac", 
+    showarrow = F, xref='paper', yref='paper', 
+    xanchor='right', yanchor='auto', xshift=0, yshift=0,
+    font=list(size=10, color="gray"))
+)
+fig <- fig %>% animation_opts(
+  frame = 100, 
+  transition = 0, 
+  redraw = FALSE
+)
+fig <- fig %>% animation_slider(
+  hide = T
+)
+fig <- fig %>% animation_button(
+  x = -.05, xanchor = "left", y = -.09, yanchor = "bottom"
+)
+
+fig
+```
+
+
+
+Unfortunately for MLB, a World Series appearance seems to be fewer people’s dreams year after year. Over nearly the past fifty years, there has been a sharp decline in average World Series viewership. Even during the electric World Series in 2016, in which the Chicago Cubs ended their 108 year drought, the viewership was incomparable to that of the 1970s and 1980s. It appears that the United States’ general public has lost interest in baseball. With the drastic decrease in viewership of baseball’s most exciting product, it was no wonder that MLB found reason to implement drastic rule changes. 
+
+## Did the 2023 Rule Changes Make Baseball More Exciting?
+
+Perhaps the most difficult thing to analyze in baseball is whether the rule changes had an effect on the overall offensive game. While the rule changes were drastic in between the 2022 and 2023 seasons, baseball, like any game, has not been static in its lifetime. It is famously touted by baseball fanatics that baseball is a game of adjustments. This is true for changes to the game. Baseball has seen many small differences over the recent years, most famously with the ball itself. Banning the defensive shift is not a small difference. Commonly known as “the shift,” the defensive shift was a process in which the infielders (third basemen, first basemen, second baseman, and shortstops) would position themselves to take advantage of flawed batters. As a batter, it is easiest to pull the baseball, or hit it towards the opposite side as the batter handedness (i.e. to the left as a righty). To take advantage of this phenomenon, the infielders would position themselves on whatever side the batter would likely hit it towards. Sometimes infielders would even be in the outfield! MLB decided that to make a more attractive brand of baseball, one where batters were better rewarded for hitting the ball, they would ban this shift. Now, all infielders must have a foot on the dirt of the infield, and there must be two on each side of second base. The shift was dead.
+
+\n
+```{r}
+### data load
+
+webpage23 <-read_html("https://baseballsavant.mlb.com/league?season=2023")
+
+mlb23 <- webpage23 %>%
+  html_element("body") %>% 
+  html_table()
+
+mlb23 <- mlb23[,c(-ncol(mlb23))]
+colnames(mlb23) <- as.character(as.vector(mlb23[1,]))
+mlb23 <- mlb23[2:32,]
+mlb23$shift <- "No"
+
+
+webpage22 <-read_html("https://baseballsavant.mlb.com/league?season=2022")
+
+mlb22 <- webpage22 %>%
+  html_element("body") %>% 
+  html_table()
+
+mlb22 <- mlb22[,c(-ncol(mlb22))]
+colnames(mlb22) <- as.character(as.vector(mlb22[1,]))
+mlb22 <- mlb22[2:32,]
+mlb22$shift <- "Yes"
+
+recent_baseball <- rbind(mlb23, mlb22)
+recent_baseball <- recent_baseball %>% mutate_all(na_if,"")
+
+dat.p3 <- recent_baseball[is.na(recent_baseball$Team),]
+
+dat.p3$WOBACON <- as.numeric(dat.p3$XWOBACON)
+dat.p3$H <- as.numeric(gsub(",", "", dat.p3$H))
+```
+
+```{r}
+### plot 3
+
+ggplot(data = dat.p3, aes(x=H, y=WOBACON, color = shift, shape=shift, fill=shift)) + 
+  geom_point(size=3.5, alpha=0.85) +
+  geom_smooth(method = "lm",  se = TRUE) + 
+  geom_text(data = subset(dat.p3, shift == "No"), aes(label = "No Shift Present"), 
+            x = 1470, y = 0.408, 
+            size = 5, color = "#AE2841") +
+  geom_text(data = subset(dat.p3, shift == "Yes"), 
+            aes(label = "Shift Present"), 
+            x = 1470, y = 0.35, 
+            size = 5, color = "#0B1E3F") + 
+  scale_fill_manual(values=c("#AE2841", "#0B1E3F"),
+                     name = "Was the Shift Present?") +
+  scale_shape_manual(values=c(16, 18),
+                     name = "Was the Shift Present?") + 
+  scale_color_manual(values=c("#AE2841", "#0B1E3F"),
+                     name = "Was the Shift Present?") + 
+  labs(title = 'Did Removing "The Shift" Help Overall Batting?',
+       subtitle = "Comparing Individual MLB Teams' Total Hits vs wOBAcon in 2022 and 2023",
+       y = "Weighted On-Base Average on Contact\n",
+       x = "\nTotal # of Hits",
+       caption = "Data: BaseballSavant") + 
+  theme_bw() +
+  theme(plot.title = element_text(face = 'bold', size = 16),
+        plot.subtitle = element_text(size = 12),
+        panel.grid.minor = element_blank(), 
+        axis.title = element_text(hjust = .5, face = 'bold'),
+        legend.position = "none",
+        axis.title.y = element_text(size = 12),
+        axis.title.x = element_text(size = 12),
+        axis.text = element_text(size = 12))
+```
+
+\n
+Since baseball has stayed relatively similar over the years, would a drastic rule change, like banning the defensive shift, then drastically change the offensive aspect of sport? It’s actually quite difficult to say. In this scatterplot, total hits are compared to weighted on-base-average with contact, or how often batters who make contact get on base, for all teams in 2022 and in 2023. While the wOBAcon averages appear to be slightly higher for teams in 2023, the number of hits do not seem to have increased at all. Even the difference in wOBAcon for the two years can be disputed! The confidence bands on the regression lines show significant overlap for the two datasets, meaning that there is no conclusive evidence towards the shift increasing wOBAcon. Evidenced by the graph, overall offensive play has not been uprooted.
+
+While the overall offense in 2022 seems to be similar to the prior year, I wondered just how much baseball could change in one season. Changes take time as players need experience to understand how they can truly implement rule differences into their game. After all, even the NBA’s current three-point focused game was not present immediately after the creation of the three-pointer. To analyze this concept, I decided to look at BAbip, or batting-average on balls in play. Similar to wOBAcon, BAbip measures how often a batter reaches base when they put the ball into play. If there is a statistic to summarize what the shift ban wanted to increase, it’s BAbip.
+
+
+```{r}
+webpage.pitch <-read_html("https://www.baseball-reference.com/leagues/majors/pitch.shtml")
+
+y2y.pitch <- webpage.pitch %>%
+  html_element("body") %>% 
+  html_table()
+
+dat.p5 <- y2y.pitch[2:160,c(1,26)]
+dat.p5 <- dat.p5[-c(25,51,77,103,129,155),]
+
+dat.p5$prior <- dat.p5$BAbip
+dat.p5$prior[-nrow(dat.p5)] <- dat.p5$prior[-1]
+dat.p5 <- dat.p5[-nrow(dat.p5),]
+dat.p5$BAbip <- as.numeric(dat.p5$BAbip)
+dat.p5$prior <- as.numeric(dat.p5$prior)
+
+dat.p5$babip.change <- dat.p5$BAbip - dat.p5$prior
+dat.p5$Year <- as.numeric(dat.p5$Year)
+
+
+ui <- fluidPage(
+  titlePanel("Season-to-Season BAbip Changes"),
+  sidebarLayout(
+    sidebarPanel(width = 6,
+                 fluidPage(
+                   fluidRow(
+                     column(6,
+                            numericInput(inputId = "n", 
+                                         label = "\nWhere should we start?",
+                                         value = NULL)
+                     )
+                   )
+                 )
+    ),
+    mainPanel(width = 10,
+              plotOutput("plot1")
+    )
+  )
+)
+
+
+server <- function(input, output) {
+  output$plot1 <- renderPlot({
+    plot1 <- ggplot(data = dat.p5, aes(x = Year, y = babip.change)) + 
+      geom_hline(yintercept = .007, linetype = "dotted", color = "#AE2841", linewidth = 1.5) +
+      geom_line(color = "#0B1E3F") +
+      scale_x_continuous(limits = c(input$n, 2023)) +
+      geom_point(size = 2, color = "#AE2841") +
+      geom_text(aes(label = "Post-Shift Ban BAbip Change       "), x = 2023, y = 0.01, 
+                size = 3, color = "#AE2841") +
+      labs(title = "How have Batted Balls in Play changed over time?",
+           subtitle = "Examining season-to-season differences in Batting Average on Balls-in-Play",
+           x = "\nYear",
+           y = "Difference in BAbip from the Previous Season\n",
+           caption = "Data: Baseball Reference") +
+      theme_bw() +
+      theme(plot.title = element_text(face = 'bold', size = 16),
+            plot.subtitle = element_text(size = 12),
+            axis.title = element_text(size = 12, hjust = .5, face = 'bold'),
+            axis.text = element_text(size = 12),
+            panel.grid.minor.y = element_blank())
+    
+    plot1
+  })
+}
+
+shinyApp(ui = ui, server = server)
+
+```
+
+
+
+![BAbip Season-to-Season Differences](/Users/jack/Desktop/STAT 3280/BABIP.png)
+
+[BAbip Visualization Website](https://jackstech.shinyapps.io/BAbip/)
+
+Please take a chance to visit my website and explore this visualization for yourself!
+
+When looking at the difference in BAbip from the previous season, 2023 was special. The BAbip increased by .007 from 2022. While that may seem like a small difference, it’s the largest season increase in BAbip since 1993. In the past 100 years, only six other seasons have seen a change in BAbip as positive as the one between 2022 and 2023. If MLB decided that they wanted to reward batters who put the ball in play, they succeeded. 
+
+While the shift ban had an effect that could only be seen in the fine margins, the implementation of the pitch clock was colossal. A common gripe about baseball was that the games were simply too long. Over the years, the game has seen a steady increase in game time. Baseball had kept the same amount of action, just been elongated. As pitchers waited longer and longer to throw their next pitch, fans got increasingly bored. The implementation of the pitch clock set strict time limits on the game for the first time in history. Now there are only 30 seconds for the first pitch when a new batter first comes to the plate, 15 seconds between pitches normally, and 20 seconds when runners are on base. If a pitcher violates this rule, a ball is added to the count. If the batter does, a strike will be added. Now the long pauses of previous years would have offenders penalized.
+
+\n
+```{r}
+### data load
+
+webpage.p1 <-read_html("https://www.baseball-reference.com/leagues/majors/misc.shtml")
+
+y2y.mlb <- webpage.p1 %>%
+  html_element("body") %>% 
+  html_table()
+
+dat.p4 <- y2y.mlb[2:106,]
+dat.p4 <- dat.p4[-c(25,51,77,103),]
+
+dat.p4$Time <- as.difftime(dat.p4$Time, format = "%H:%M")
+dat.p4$Time <- gsub(" hours", "", dat.p4$Time)
+dat.p4$Time <- as.numeric(dat.p4$Time)
+dat.p4$`R/G` <- as.numeric(dat.p4$`R/G`)
+dat.p4$runs.per.hour <- dat.p4$`R/G` / dat.p4$Time
+dat.p4 <- dat.p4[,c(1, 4, 8, 21)]
+dat.p4$Year <- as.numeric(dat.p4$Year)
+dat.p4$Time <- dat.p4$Time * 60
+
+dat.p4 <- dat.p4[1:44,]
+```
+
+```{r}
+### plot 5
+ggplot(data = dat.p4, aes(x=Year, y=Time)) +
+  geom_hline(yintercept = 162, linetype = "dotted", color = "#AE2841") +
+  geom_line(color = '#0B1E3F') + 
+  geom_point(aes(color = runs.per.hour), size = 2.5) + 
+  scale_colour_gradient(low = "#F5D714", high = "#AE2841", name = 'Runs per Hour of Game Length') +
+  scale_y_continuous(breaks = seq(150, 205, by = 15),
+                     limits = c(140,200)) + 
+  scale_x_continuous(breaks = seq(1980, 2020, by = 10),
+                     limits = c(1980, 2023)) + 
+  geom_text(aes(label = "Post-Pitch Clock Avg. Game Time"), x = 2013, y = 158, 
+            size = 3, color = "#AE2841") +
+  labs(title = "Did the Pitch Clock Decrease Game Time?",
+       subtitle = "Analyzing MLB game length and pace of play from 1980-2023",
+       x = "\nMLB Season",
+       y = "Average length of MLB game (minutes)\n",
+       caption = "Data: Baseball Reference") + 
+  theme_bw() + 
+  theme(plot.title = element_text(face = 'bold', size = 16),
+        plot.subtitle = element_text(size = 12),
+        axis.title = element_text(hjust = .5, face = 'bold'),
+        axis.title.y = element_text(size = 12),
+        axis.title.x = element_text(size = 12),
+        axis.text = element_text(size = 12),
+        panel.grid.minor.y = element_blank())
+```
+
+\n
+When looking at the effects on game time, it’s obvious that the pitch clock was a massive success. MLB’s goal of increasing pace of play appears to have worked. For the first time since 2012, the average length of a MLB game was under three hours. Between 2022 and 2023, the average game time plummeted from 186 minutes to 162 minutes. Baseball fans were now able to see the same amount of baseball action in close to half-an-hour less time! Although the game time had nosedived, the amount of runs scored per game stayed similar to previous years, causing the runs per hour to skyrocket. Baseball was action-packed for the first time in over a decade! It’s impossible to call the pitch clock anything but a resounding success.
+
+In MLB’s third change to make baseball more exciting, they adjusted the size of the bases from 15 inches to 18 inches. Now runners were incentivized to make riskier plays, primarily stealing a base, as the chance of being caught was considerably lower. One part of the pitch clock that I previously omitted is that pitchers are now only able to attempt to throw a runner on base out twice during an at bat. If a pitcher attempts to throw a runner out for a third time, and is unsuccessful, it will be treated as a balk, and all runners will advance one base. With this knowledge, runners could now better plan when to attempt a steal. 
+
+\n
+```{r}
+### data load
+
+webpage.bat <-read_html("https://www.baseball-reference.com/leagues/majors/bat.shtml")
+
+y2y.bat <- webpage.bat %>%
+  html_element("body") %>% 
+  html_table()
+
+dat.p6 <- y2y.bat[163:nrow(y2y.bat),c(1, 16, 17)]
+dat.p6 <- dat.p6[1:108,]
+dat.p6 <- dat.p6[-c(25, 51, 77, 103),]
+dat.p6$SB <- as.numeric(dat.p6$SB)
+dat.p6$CS <- as.numeric(dat.p6$CS)
+dat.p6$Year <- as.numeric(dat.p6$Year)
+dat.p6 <- dat.p6[-4,]
+
+dat.p6 <- melt(dat.p6, id.vars = "Year")
+dat.p6$Year <- as.numeric(dat.p6$Year)
+```
+
+```{r, warning = FALSE}
+### plot 6
+
+ggplot(data=dat.p6, aes(x = Year, y = value, fill = variable)) +
+  geom_hline(yintercept = (3503 + 866), linetype = "dotted", color = "#AE2841") +
+  geom_bar(stat = "identity", width = 1) +
+  scale_fill_manual(values = c("SB" = "#0B1E3F", "CS" = "#AE2841"),
+                    name = "Stolen Base Attempts",
+                    labels = c("Stolen Base", "Caught Stealing")) +
+  scale_x_continuous(breaks = seq(2000, 2025, by = 5),
+                     limits = c(1999, 2024)) + 
+  geom_text(aes(label = "2023 # of SB attempts"), x = 2020, y = 4550, 
+            size = 3, color = "#AE2841") +
+  labs(title = "Do larger bases incentive stolen bases?",
+       subtitle = "Examining stolen base attempts across MLB seasons",
+       x = "Year",
+       y = "Total # of Stolen Base Attempts",
+       caption = "Data: Baseball Reference") + 
+  theme_bw() + 
+  theme(plot.title = element_text(face = 'bold', size = 16),
+        plot.subtitle = element_text(size = 12),
+        axis.title = element_text(size = 12, hjust = .5, face = 'bold'),
+        axis.text = element_text(size = 12),
+        panel.grid.minor.y = element_blank())
+```
+
+Similar to the pitch clock, the effect of these changes were drastic. There were over 4000 stolen base attempts for the first time in over a decade. Only three other seasons had an equal or greater amount of stolen base attempts since 2000. Stolen base attempts skyrocketed from 2022, but equally important, the number of times baserunners were caught stealing, or committed an unsuccessful stolen base attempt, only marginally increased. In another attempt to increase action in baseball, MLB once again proved successful.
+
+
+
+## Has Baseball Been Saved?
+
+With these significant, successful rule changes now in effect, I questioned if there was an effect on baseball outside of the field itself. While I’m sure MLB executives enjoy watching baseball as much as anyone else, I feel that they must also define rule change success economically. Baseball had clearly developed into a more exciting sport in 2023, but was this change immediately seen through the fans?
+
+```{r}
+webpage.p1 <-read_html("https://www.baseball-reference.com/leagues/majors/misc.shtml")
+
+y2y.mlb <- webpage.p1 %>%
+  html_element("body") %>% 
+  html_table()
+
+dat.p7 <- y2y.mlb[2:106,]
+dat.p7 <- dat.p7[-c(25,51,77,103),]
+
+dat.p7 <- dat.p7[-4 ,c(1, 17, 18)]
+dat.p7$Attendance <- gsub(",", "", dat.p7$Attendance)
+dat.p7$`Attend/G` <- gsub(",", "", dat.p7$`Attend/G`)
+
+dat.p7$Attendance <- as.numeric(dat.p7$Attendance)
+dat.p7$`Attend/G` <- as.numeric(dat.p7$`Attend/G`)
+
+dat.p7$att.prior <- dat.p7$Attendance
+dat.p7$att.prior[-nrow(dat.p7)] <- dat.p7$att.prior[-1]
+
+dat.p7$game.prior <- dat.p7$`Attend/G`
+dat.p7$game.prior[-nrow(dat.p7)] <- dat.p7$game.prior[-1]
+
+dat.p7 <- dat.p7[-nrow(dat.p7),]
+
+dat.p7$att.inc <- (dat.p7$Attendance / dat.p7$att.prior) - 1
+dat.p7$game.inc <- (dat.p7$`Attend/G` / dat.p7$game.prior) - 1
+
+dat.p7$`Attendance/Game` <- dat.p7$`Attend/G`
+dat.p7$Year <- as.numeric(dat.p7$Year)
+dat.p7$Attendance <- dat.p7$Attendance / 1000000
+
+ui <- fluidPage(
+  titlePanel("MLB Attendance Data"),
+  sidebarLayout(
+    sidebarPanel(width = 7,
+                 fluidPage(
+                   fluidRow(
+                     column(6,
+                            selectInput(inputId = "yvar",
+                                        label = "Variable",
+                                        choices = c("Attendance", "Attendance/Game")
+                            )
+                     )
+                   )
+                 )
+    ),
+    mainPanel(width = 10,
+              plotOutput("plot1")
+    )
+  )
+)
+
+server <- function(input, output) {
+  output$plot1 <- renderPlot({
+    if (input$yvar == "Attendance") {
+      plot1 <- ggplot(data = dat.p7, aes(x = Year, y = Attendance)) +
+        geom_line(color = "#0B1E3F") +
+        scale_x_continuous(limits = c(1980, 2023)) +
+        geom_point(size = 2, color = "#AE2841") +
+        labs(title = "Are more people coming to MLB games?",
+             subtitle = "Analyzing season-to-season data for MLB Attendance",
+             x = "\nYear",
+             y = "# of Fans in Attendance (millions)\n",
+             caption = "Data: Baseball Reference") +
+        theme_bw() +
+        theme(plot.title = element_text(face = 'bold', size = 20),
+              plot.subtitle = element_text(size = 16),
+              axis.title = element_text(size = 12, hjust = .5, face = 'bold'),
+              axis.text = element_text(size = 12),
+              panel.grid.minor.y = element_blank())
+    }
+    
+    if (input$yvar == "Attendance/Game") {
+      plot1 <- ggplot(data = dat.p7, aes(x = Year, y = `Attendance/Game`)) +
+        geom_line(color = "#0B1E3F") +
+        scale_x_continuous(limits = c(1980, 2023)) +
+        geom_point(size = 2, color = "#AE2841") +
+        labs(title = "Are more people coming to MLB games?",
+             subtitle = "Analyzing season-to-season data for MLB Attendance",
+             x = "\nYear",
+             y = "Average # of Fans in Attendance per Game\n",
+             caption = "Data: Baseball Reference") +
+        theme_bw() +
+        theme(plot.title = element_text(face = 'bold', size = 20),
+              plot.subtitle = element_text(size = 16),
+              axis.title = element_text(size = 12, hjust = .5, face = 'bold'),
+              axis.text = element_text(size = 12),
+              panel.grid.minor.y = element_blank())
+    }            
+    plot1
+  })
+}
+
+shinyApp(ui = ui, server = server)
+```
+
+
+
+![Attendance Data](/Users/jack/Desktop/STAT 3280/Attendance.png)
+
+![Attendance per Game Data](/Users/jack/Desktop/STAT 3280/Attendance_Game.png)
+
+[Attendance Visualization Website](https://jackstech.shinyapps.io/Attendance/)
+
+Please take some time to visit my website and explore these visualizations yourself!
+
+I first sought attendance data to define fan engagement for the 2023 season. Similar to the rule changes, there appeared to be a positive increase in attendance on both a season total and per game basis for the 2023 season. There were now around two thousand more fans at each game, and around five million more on the season as a whole. The most noticeable difference between this and the other changes I’ve discussed so far is that while fan attendance increased noticeably, there was nothing historic about it. Many of the rule changes were to solve problems with the game itself, and while these problems were increasing, fan attendance did not appear to be part of it. In fact, fan attendance had been steadily rising as the years had gone on. In 2020, COVID-19 greatly affected the MLB season. Drastic stopgaps were implemented that forced fans out of the stadium for the public’s health. With the 2023 rule changes, MLB attendance is now similar to the pre-pandemic years. Perhaps the rule changes were just what baseball needed to get back on track.
+
+\n
+```{r}
+### data load
+
+y2y.mlb$payroll <- y2y.mlb$`Lg Payroll*`
+
+dat.p8 <- y2y.mlb[2:24,c(1,21)]
+dat.p8 <- dat.p8[rev(row.names(dat.p8)), ]
+
+dat.p8$revenue <- c(3.58, 3.65, 3.88, 4.27, 4.73, 5.11, 5.48, 5.82, 5.9,
+            6.14, 6.36, 6.81, 7.1, 7.86, 8.39, 9.03, 9.46, 9.9,
+            10.37, 3.66, 9.56, 10.32, 11.6)
+
+dat.p8 <- dat.p8[-20,]
+
+dat.p8$payroll <- substr(dat.p8$payroll, 2, nchar(dat.p8$payroll))
+dat.p8$payroll <- gsub(",", "", dat.p8$payroll)
+
+dat.p8$payroll <- as.numeric(dat.p8$payroll)
+dat.p8$payroll <- dat.p8$payroll / 1000000000
+dat.p8$Year <- as.numeric(dat.p8$Year)
+
+dat.p8 <- melt(dat.p8, id.vars = "Year")
+```
+
+```{r, warning=FALSE}
+### plot 8
+
+ggplot(data = dat.p8, aes(x = Year, y = value, fill = variable)) + 
+  geom_bar(stat = "identity", width = 1, position = 'dodge') +
+  scale_fill_manual(values = c("payroll" = "#AE2841", "revenue" = "#0B1E3F"),
+                    name = "Money across MLB",
+                    labels = c("Player Payroll", "Total Revenue")) +
+  labs(title = "Is MLB still profitable?",
+       subtitle = "Analyzing MLB's total revenue and player payroll from 2001-2023",
+       x = "Year",
+       y = "Billions ($)",
+       caption = "Data: Forbes, Baseball Reference") + 
+  theme_bw() + 
+  theme(plot.title = element_text(face = 'bold', size = 16),
+        plot.subtitle = element_text(size = 12),
+        axis.title = element_text(size = 12, hjust = .5, face = 'bold'),
+        axis.text = element_text(size = 12),
+        panel.grid.minor.y = element_blank())
+```
+
+Lastly, I turned to revenue data to look at the state of MLB in 2023. Even better than the attendance data, MLB total revenue has been on a constant upward slope since the turn of the century. Once again, 2023 was a historic year for baseball. MLB accrued the greatest revenue in the league’s history, netting nearly 12 billion dollars, and over a billion more than in 2022. If MLB executives define success through more profit, then they are surely happy. While higher profit should likely be a great thing for baseball, there are certain issues when revenue is compared to the player payroll (how much all baseball players in the league are paid during a season). While revenue has skyrocketed since 2000, the player payroll has not increased at the same rate. While the players were being paid over half the league revenue in 2000, they now make around 40%. Especially now that players are being asked to play a more intense form of baseball, it may be time for them to negotiate their salaries.
+
+
+## Conclusion
+
+Overall, it’ll likely take more than one season to fully understand the impacts of the rule changes implemented in 2023. While only time will tell, it appears that the league’s goals were met in the first year of their changes. Game time plummeted, players were running far more often than before, and the game was more exciting. The league seems to be back on track after COVID, and ready to grow more than ever. Things are looking bright in the world of baseball.
+
